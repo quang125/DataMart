@@ -23,7 +23,7 @@ public class Demo {
         List<TableInfo> tableInfoList = redshiftDC2Service.executeSelectAllTable("select * from svv_tables");
         for(TableInfo tableInfo:tableInfoList){
             if(tableInfo.getSchemaName().startsWith("dwh_")){
-                if(!tableInfo.getSchemaName().equals("dwh_test")&&!tableInfo.getSchemaName().equals("dwh_g_publisher_3")) continue;
+                if(!tableInfo.getSchemaName().equals("dwh_test")) continue;
                 schemaList.add(tableInfo.getSchemaName());
                 if(tableInfo.getTableName().startsWith("api_")){
                     List<String>tables=tableList.getOrDefault(tableInfo.getSchemaName(),new ArrayList<>());
@@ -36,12 +36,14 @@ public class Demo {
     @PostConstruct
     public static void preTask(Task task) throws SQLException {
         System.out.println("cccc");
+        //lấy tất cả distinct main field ra
         Set<String>mainFieldData=new HashSet<>();
         for(String schema:schemaList){
             for(String table:tableList.get(schema)){
                 mainFieldData.addAll(redshiftDC2Service.executeSelectDistinct(QueryGenerateUtil.getAllByFields(schema, table,task.getMainField())));
             }
         }
+        System.out.println(mainFieldData.size());
         Map<String,String>res=new HashMap<>();
         for(FieldTask fieldTask: task.getFieldTask()){
             //các task có bảng, lấy tất cả các bảng có format tương tự của từng schema
@@ -62,7 +64,6 @@ public class Demo {
                     fieldTask.getDataField().getKind().equals("sum")) data=fieldTask.getDataField().getKind()+"("+fieldTask.getDataField().getField()+")";
             else if(fieldTask.getDataField().getKind().equals("count")) data="count(*)";
             else data=fieldTask.getDataField().getField();
-            List<String>records=new ArrayList<>();
             if(fieldTask.getInputField().getKind().equals("max")){
                 //tìm max
                 String max=redshiftDC2Service.executeCountSelect(QueryGenerateUtil.queryForMaxValues(map,fieldTask.getInputField().getField()));
@@ -85,10 +86,10 @@ public class Demo {
                 for(String mainId:mainFieldData){
                     for(String val:vals){
                         String q=QueryGenerateUtil.specificValueQuery(map,task.getMainField(),mainId,fieldTask.getInputField().getField(),data,val);
-                        System.out.println(q);
+                        //System.out.println(q);
                     }
                 }
-                System.out.println();
+                //System.out.println();
             }
             else if(fieldTask.getInputField().getKind().equals("null")){
                 for(String mainId:mainFieldData){
@@ -110,6 +111,7 @@ public class Demo {
     }
 
     public static void main(String[] args) throws SQLException {
+        System.out.println(Double.MAX_VALUE);
         List<FieldKind>fieldInputKinds = new ArrayList<>();
         List<FieldKind>fieldDataKinds = new ArrayList<>();
         List<FieldTask>fieldTasks=new ArrayList<>();
@@ -152,19 +154,19 @@ public class Demo {
         //tổng thời gian chơi
         fieldInputKinds.add(new FieldKind("null", "null"));
         fieldDataKinds.add(new FieldKind("session_time", "sum"));
-        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(0),fieldDataKinds.get(0),"count_charge"));
-        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(1),fieldDataKinds.get(1),"total_charge"));
-        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(2),fieldDataKinds.get(2),"last_time_charge"));
-        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(3),fieldDataKinds.get(3),"last_money_charge"));
-        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(4),fieldDataKinds.get(4),"max_charge"));
-        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(5),fieldDataKinds.get(5),"min_charge"));
-        fieldTasks.add(new FieldTask("api_ads_log_raw_data",fieldInputKinds.get(6),fieldDataKinds.get(6),"count_ads_view"));
+//        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(0),fieldDataKinds.get(0),"count_charge"));
+//        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(1),fieldDataKinds.get(1),"total_charge"));
+//        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(2),fieldDataKinds.get(2),"last_time_charge"));
+//        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(3),fieldDataKinds.get(3),"last_money_charge"));
+//        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(4),fieldDataKinds.get(4),"max_charge"));
+//        fieldTasks.add(new FieldTask("api_inapp_log_raw_data",fieldInputKinds.get(5),fieldDataKinds.get(5),"min_charge"));
+//        fieldTasks.add(new FieldTask("api_ads_log_raw_data",fieldInputKinds.get(6),fieldDataKinds.get(6),"count_ads_view"));
         fieldTasks.add(new FieldTask("api_ads_log_raw_data",fieldInputKinds.get(7),fieldDataKinds.get(7),"count_ads_view_for"));
-        fieldTasks.add(new FieldTask("api_level_log_raw_data",fieldInputKinds.get(8),fieldDataKinds.get(8),"max_level"));
-        fieldTasks.add(new FieldTask("api_level_log_raw_data",fieldInputKinds.get(9),fieldDataKinds.get(9),"count_fail"));
-        fieldTasks.add(new FieldTask("api_retention_raw_data",fieldInputKinds.get(10),fieldDataKinds.get(10),"last_time_play"));
-        fieldTasks.add(new FieldTask("api_session_raw_data",fieldInputKinds.get(11),fieldDataKinds.get(11),"last_total_play"));
-        fieldTasks.add(new FieldTask("api_session_raw_data",fieldInputKinds.get(12),fieldDataKinds.get(12),"total_play"));
+//        fieldTasks.add(new FieldTask("api_level_log_raw_data",fieldInputKinds.get(8),fieldDataKinds.get(8),"max_level"));
+//        fieldTasks.add(new FieldTask("api_level_log_raw_data",fieldInputKinds.get(9),fieldDataKinds.get(9),"count_fail"));
+//        fieldTasks.add(new FieldTask("api_retention_raw_data",fieldInputKinds.get(10),fieldDataKinds.get(10),"last_time_play"));
+//        fieldTasks.add(new FieldTask("api_session_raw_data",fieldInputKinds.get(11),fieldDataKinds.get(11),"last_total_play"));
+//        fieldTasks.add(new FieldTask("api_session_raw_data",fieldInputKinds.get(12),fieldDataKinds.get(12),"total_play"));
         Task task=new Task(fieldTasks,"account_id");
         preRun();
         preTask(task);

@@ -5,14 +5,8 @@ import com.example.datamart.data.TableInfo;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.sql.*;
+import java.util.*;
 
 /**
  * A class used to interact with redshift (could be used for other data sources too, but it hasn't been tested yet).
@@ -152,6 +146,29 @@ public class RedshiftService {
             }
         }
         return null;
+    }
+    public List<List<String>> executeSelect(String sqlCommand, List<String>fields){
+        List<List<String>>results=new ArrayList<>();
+        try (Connection connection = hikariDataSource.getConnection();
+             PreparedStatement statement = connection.prepareStatement(sqlCommand)) {
+
+            ResultSet resultSet = statement.executeQuery();
+
+            ResultSetMetaData metaData = resultSet.getMetaData();
+            int columnCount = metaData.getColumnCount();
+
+            while (resultSet.next()) {
+                List<String>result=new ArrayList<>();
+                for (String field:fields) {
+                    String value = resultSet.getString(field);
+                    result.add(value);
+                }
+                results.add(result);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException(e);
+        }
+        return results;
     }
 
     public void close() {
