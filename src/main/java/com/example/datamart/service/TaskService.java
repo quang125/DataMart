@@ -1,10 +1,16 @@
 package com.example.datamart.service;
 
 import com.example.datamart.data.TableInfo;
+import com.example.datamart.repository.MongoRepository;
 import com.example.datamart.utils.QueryGenerateUtil;
+import com.mongodb.client.MongoCollection;
 import jakarta.annotation.PostConstruct;
+import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.InitializingBean;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.stereotype.Service;
 
 import java.sql.SQLException;
 import java.time.LocalDate;
@@ -13,17 +19,20 @@ import java.util.*;
 /**
  * @author QuangNN
  */
-public class TaskService {
+@Service
+public class TaskService implements InitializingBean {
     private static final RedshiftService redshiftDC2Service = new RedshiftService("jdbc:redshift://new-dwh-cluster.cbyg0igfhhw3.us-east-1.redshift.amazonaws.com:5439/dwh_games", "quangnn", "Yvx83kfRmHt42b6kqgM5gzjG6");
     private static final Map<String, List<String>> tableList = new HashMap<>();
     private static final Logger logger = LoggerFactory.getLogger(TaskService.class);
-
-
+    private static Set<String>accountId=new HashSet<>();
+    @Autowired
+    private  MongoRepository mongoRepository;
+    @PostConstruct
     public static void preRun() throws SQLException {
         List<TableInfo> tableInfoList = redshiftDC2Service.executeSelectAllTable("select * from svv_tables");
         for (TableInfo tableInfo : tableInfoList) {
             if (tableInfo.getSchemaName().startsWith("dwh_")) {
-                if (!tableInfo.getSchemaName().equals("dwh_test")) continue;
+                if (!tableInfo.getSchemaName().equals("dwh_falcon_2")) continue;
                 if (tableInfo.getTableName().startsWith("api_")) {
                     List<String> tables = tableList.getOrDefault(tableInfo.getSchemaName(), new ArrayList<>());
                     tables.add(tableInfo.getTableName());
@@ -59,145 +68,92 @@ public class TaskService {
         return result;
     }
 
-    public static Map<String,String> doType3(String schema, String tableString, String mainField, String dataField, String typeData) {
-        Map<String,String>result=new HashMap<>();
+    public static Map<String,LinkedHashMap<String,String>> doType3(String schema, String tableString, String mainField, List<String> dataFields, List<String> types, List<String>dataTypes) {
+        Map<String,LinkedHashMap<String,String>>result=new HashMap<>();
         for (String table : tableList.get(schema)) {
             if (!table.startsWith(tableString)) continue;
-            List<List<String>>recordList=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType3(schema, table, mainField,dataField), Arrays.asList(mainField, "sum"));
-            if(typeData.equals("double")) {
-                for (List<String> record : recordList) {
-                    result.put(record.get(0), String.valueOf(Double.parseDouble(result.getOrDefault(record.get(0), "0.0")) + Double.parseDouble(record.get(1))));
-                }
+            List<String>fields=new ArrayList<>();
+            int c=0;
+            for(int k=0;k<types.size();k++){
+                fields.add("a"+c);
+                c++;
             }
-            else{
-                for (List<String> record : recordList) {
-                    result.put(record.get(0), String.valueOf(Long.parseLong(result.getOrDefault(record.get(0), "0")) + Long.parseLong(record.get(1))));
+            fields.add(mainField);
+            List<List<String>>recordList=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType3(schema, table, mainField,dataFields,types), fields);
+            for(int i=0;i<recordList.size();i++){
+                if(!result.containsKey(recordList.get(i).get(types.size()))) result.put(recordList.get(i).get(types.size()),new LinkedHashMap<>());
+                LinkedHashMap<String,String>fieldsResult=new LinkedHashMap<>(result.get(recordList.get(i).get(types.size())));
+                for(int j=0;j<types.size();j++){
+                    if(types.get(j).equals("sum")) {
+                        if(dataTypes.get(j).equals("double")) fieldsResult.put(dataFields.get(j)+"_sum",String.valueOf(Double.parseDouble(fieldsResult.getOrDefault(dataFields.get(j)+"_sum","0.0"))+Double.parseDouble(recordList.get(i).get(j))));
+                        if(dataTypes.get(j).equals("long")) fieldsResult.put(dataFields.get(j)+"_sum",String.valueOf(Long.parseLong(fieldsResult.getOrDefault(dataFields.get(j)+"_sum","0"))+Long.parseLong(recordList.get(i).get(j))));
+                    }
+                    if(types.get(j).equals("max")) {
+                        if(dataTypes.get(j).equals("double")) fieldsResult.put(dataFields.get(j)+"_max",String.valueOf(Math.max(Double.parseDouble(fieldsResult.getOrDefault(dataFields.get(j)+"_max","0.0")),Double.parseDouble(recordList.get(i).get(j)))));
+                        else if(dataTypes.get(j).equals("long")) fieldsResult.put(dataFields.get(j)+"_max",String.valueOf(Math.max(Long.parseLong(fieldsResult.getOrDefault(dataFields.get(j)+"_max","0")),Long.parseLong(recordList.get(i).get(j)))));
+                    }
+                    if(types.get(j).equals("min")) {
+                        if(dataTypes.get(j).equals("double")) fieldsResult.put(dataFields.get(j)+"_min",String.valueOf(Math.min(Double.parseDouble(fieldsResult.getOrDefault(dataFields.get(j)+"_min","1000000000.0")),Double.parseDouble(recordList.get(i).get(j)))));
+                        else if(dataTypes.get(j).equals("long")) fieldsResult.put(dataFields.get(j)+"_min",String.valueOf(Math.min(Long.parseLong(fieldsResult.getOrDefault(dataFields.get(j)+"_min","1000000000000")),Long.parseLong(recordList.get(i).get(j)))));
+                    }
                 }
+                result.put(recordList.get(i).get(types.size()),fieldsResult);
             }
         }
         return result;
     }
-
-    public static Map<String, String> doType4(String schema, String tableString, String mainField, String dataField, String typeData, String type) {
-        Map<String,String>result=new HashMap<>();
-        for (String table : tableList.get(schema)) {
-            if (!table.startsWith(tableString)) continue;
-            List<List<String>>recordList=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType4(schema, table, mainField,dataField, type),
-                    Arrays.asList(mainField, type));
-            if(typeData.equals("date")) {
-                for (List<String> record : recordList) {
-                    LocalDate current=LocalDate.parse(result.getOrDefault(record.get(0), "2020-01-01"));
-                    LocalDate here=LocalDate.parse(record.get(1));
-                    if(current.isBefore(here)) result.put(record.get(0), here.toString());
+    public static Map<String,LinkedHashMap<String,String>> doType4(String schema, String tableString, String mainField, List<String> dataFields, String inputField, String type) {
+        Map<String,LinkedHashMap<String,String>>result=new HashMap<>();
+        List<String>sortedTable=new ArrayList<>();
+        for(String table:tableList.get(schema)){
+            if(table.startsWith(tableString)) sortedTable.add(table);
+        }
+        sortedTable.sort((a,b)->(a.length()==b.length()?b.compareTo(a):a.length()-b.length()));
+        for (String table : sortedTable) {
+            List<String>fields=new ArrayList<>(dataFields);
+            fields.add(mainField);
+            List<List<String>>recordList=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType4(schema, table, mainField,dataFields,inputField, type), fields);
+            for (List<String> strings : recordList) {
+                if (result.containsKey(strings.get(dataFields.size()))) continue;
+                LinkedHashMap<String, String> fieldsResult = new LinkedHashMap<>();
+                for (int j = 0; j < dataFields.size(); j++) {
+                    fieldsResult.put(dataFields.get(j), strings.get(j));
                 }
-            }
-            else if(typeData.equals("long")){
-                for (List<String> record : recordList) {
-                    result.put(record.get(0), String.valueOf(Math.max(Long.parseLong(result.getOrDefault(record.get(0), "0")) , Long.parseLong(record.get(1)))));
-                }
-            }
-            else{
-                for (List<String> record : recordList) {
-                    result.put(record.get(0), String.valueOf(Math.max(Double.parseDouble(result.getOrDefault(record.get(0), "0.0")) , Double.parseDouble(record.get(1)))));
-                }
+                result.put(strings.get(dataFields.size()), fieldsResult);
             }
         }
         return result;
     }
-
-    public static Map<String,String> doType5(String schema, String tableString, String mainField, String dataField, String inputField, String type, String dataType) {
-        Map<String,String>result=new HashMap<>();
-        for (String table : tableList.get(schema)) {
-            if (!table.startsWith(tableString)) continue;
-            List<List<String>>recordList=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType5(schema, table, mainField,dataField,inputField, type), Arrays.asList(mainField, dataField));
-            Set<String>visited=new HashSet<>();
-            if(dataType.equals("long")) {
-                for (List<String> record : recordList) {
-                    if (visited.contains(record.get(0))) continue;
-                    visited.add(record.get(0));
-                    result.put(record.get(0), String.valueOf(Math.max(Long.parseLong(result.getOrDefault(record.get(0), "0")), Long.parseLong(record.get(1)))));
-                }
-            }
-            else{
-                for (List<String> record : recordList) {
-                    if (visited.contains(record.get(0))) continue;
-                    visited.add(record.get(0));
-                    result.put(record.get(0), String.valueOf(Math.max(Double.parseDouble(result.getOrDefault(record.get(0), "0.0")) , Double.parseDouble(record.get(1)))));
-                }
-            }
-        }
-        return result;
-    }
-    public static Map<String,Map<String,String>> doType6(String schema, String tableString, String mainField, String inputField) {
-        Map<String,Map<String,String>>result=new HashMap<>();
-        Map<String,String>map=new HashMap<>();
-        for (String table : tableList.get(schema)) {
-            if (!table.startsWith(tableString)) continue;
-            List<List<String>>recordList=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType6(schema, table, mainField, inputField),
-                    Arrays.asList(mainField, inputField, "count"));
-            for(List<String>record:recordList){
-                map.put(record.get(0)+" "+record.get(1),String.valueOf(Long.parseLong(map.getOrDefault(record.get(0)+" "+record.get(1),"0"))
-                        +Long.parseLong(record.get(2))));
-            }
-        }
-        for(Map.Entry<String,String>m:map.entrySet()){
-            String key=m.getKey();
-            String value = m.getValue();
-            String[]split=key.split(" ");
-            if(!result.containsKey(split[0])){
-                result.put(split[0], new HashMap<>());
-            }
-            result.get(split[0]).put(split[1],value);
-        }
-        return result;
-    }
+//    public static Map<String,Map<String,String>> doType6(String schema, String tableString, String mainField, String inputField) {
+//        Map<String,Map<String,String>>result=new HashMap<>();
+//        Map<String,String>map=new HashMap<>();
+//        for (String table : tableList.get(schema)) {
+//            if (!table.startsWith(tableString)) continue;
+//            List<List<String>>recordList=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType6(schema, table, mainField, inputField),
+//                    Arrays.asList(mainField, inputField, "count"));
+//            for(List<String>record:recordList){
+//                map.put(record.get(0)+" "+record.get(1),String.valueOf(Long.parseLong(map.getOrDefault(record.get(0)+" "+record.get(1),"0"))
+//                        +Long.parseLong(record.get(2))));
+//            }
+//        }
+//        for(Map.Entry<String,String>m:map.entrySet()){
+//            String key=m.getKey();
+//            String value = m.getValue();
+//            String[]split=key.split(" ");
+//            if(!result.containsKey(split[0])){
+//                result.put(split[0], new HashMap<>());
+//            }
+//            result.get(split[0]).put(split[1],value);
+//        }
+//        if(tableString.startsWith("api_inapp")){
+//            accountId.addAll(result.keySet());
+//        }
+//        return result;
+//    }
     static Map<String,List<String>>res=new HashMap<>();
     static int fieldNumber;
-    public static void main(String[] args) throws SQLException {
-        Long currentTime = System.currentTimeMillis();
-        System.out.println(currentTime);
-        fieldNumber=14;
-        preRun();
-        int c=0;
-        //số lần đã nạp
-        insertResult(doType1("dwh_falcon_1","api_inapp","account_id"),c++);
-        //tổng đã nạp bao nhiêu tiền
-        insertResult(doType3("dwh_falcon_1","api_inapp","account_id","price_usd","double"),c++);
-        //ngày cuối nạp là ngày nào (created_date_str)
-        insertResult(doType4("dwh_falcon_1","api_inapp","account_id","created_date_str","date","max"),c++);
-        //lần cuối nạp là lúc nào (create_date)
-        insertResult(doType4("dwh_falcon_1","api_inapp","account_id","created_date","long","max"),c++);
-        //lần cuối nạp, thì nạp bao nhiêu tiền
-        insertResult(doType5("dwh_falcon_1","api_inapp","account_id","price_usd","created_date","max","double"),c++);
-        //số tiền nạp tối đa
-        insertResult(doType4("dwh_falcon_1","api_inapp","account_id","price_usd","double","max"),c++);
-        //số tiền nạp tối thiểu
-        insertResult(doType4("dwh_falcon_1","api_inapp","account_id","price_usd","double","min"),c++);
-        //số lần đã xem quảng cáo
-        insertResult(doType1("dwh_falcon_1","api_ads","account_id"),c++);
-        //số lần đã xem quảng cáo cho từng loại quảng cáo
-//        Map<String,Map<String,String>>map=doType6("dwh_test","api_ads","account_id","ad_where");
-//        fieldNumber+= map.size();
-//        for(Map.Entry<String,Map<String,String>>m:map.entrySet()){
-//            insertResult(m.getValue(),c++);
-//        }
-        //level cao nhất
-        insertResult(doType4("dwh_falcon_1","api_level","account_id","level","long","max"),c++);
-        //số lần đã fail
-        insertResult(doType2("dwh_falcon_1","api_level","account_id","status","fail"),c++);
-        //lần cuối đăng nhập
-        insertResult(doType4("dwh_falcon_1","api_retention","account_id","created_date","long","max"),c++);
-        //lần đầu đăng nhập
-        insertResult(doType4("dwh_falcon_1","api_retention","account_id","created_date","long","min"),c++);
-        //lần cuối chơi bao nhiêu thời gian
-        insertResult(doType5("dwh_falcon_1","api_session","account_id","session_time","created_date","max","long"),c++);
-        //tổng đã chơi bao nhiêu thời gian
-        insertResult(doType3("dwh_falcon_1","api_session","account_id","session_time","long"),c);
-        long endTime = System.currentTimeMillis();
-        long executeTime=endTime - currentTime;
-        System.out.println(executeTime);
-    }
-    public static void insertResult(Map<String,String>m, int index){
+    static int index=0;
+    public static void insertOne(Map<String,String>m){
         for(Map.Entry<String,String> e:m.entrySet()){
             if(!res.containsKey(e.getKey())){
                 List<String> l = new ArrayList<>(Collections.nCopies(fieldNumber, "null"));
@@ -208,6 +164,76 @@ public class TaskService {
                 res.get(e.getKey()).set(index,e.getValue());
             }
         }
+        index+=1;
     }
-
+    public static void insertMul(Map<String,LinkedHashMap<String,String>>m){
+        int newInd=index;
+        for(Map.Entry<String,LinkedHashMap<String,String>> e:m.entrySet()){
+            int z=index;
+            if(!res.containsKey(e.getKey())){
+                List<String> l = new ArrayList<>(Collections.nCopies(fieldNumber, "null"));
+                for(Map.Entry<String,String> x:e.getValue().entrySet()){
+                    l.set(z,x.getValue());
+                    z++;
+                }
+                res.put(e.getKey(), l);
+            }
+            else{
+                for(Map.Entry<String,String> x:e.getValue().entrySet()){
+                    res.get(e.getKey()).set(z,x.getValue());
+                    z++;
+                }
+            }
+            if(newInd==index) newInd+=z-index;
+        }
+        index=newInd;
+    }
+    @Override
+    public void afterPropertiesSet() throws Exception {
+        Long currentTime = System.currentTimeMillis();
+        System.out.println(currentTime);
+        fieldNumber=13;
+        //số lần đã nạp
+        insertOne(doType1("dwh_falcon_2","api_inapp","account_id"));
+        //lần nạp tối đa, lần nạp cuối, lần nạp tối thiểu, tổng nạp bao nhiêu tiền
+        insertMul(doType3("dwh_falcon_2","api_inapp_log_raw_data","account_id",Arrays.asList("price_usd","created_date","price_usd","price_usd"),
+                Arrays.asList("max","max","min","sum"),Arrays.asList("double","long","double","double")));
+        //lần nạp cuối nạp bao nhiêu tiền
+        insertMul(doType4("dwh_falcon_2","api_inapp_log_raw_data","account_id",Arrays.asList("price_usd"),
+                "created_date","max"));
+        //xem bao nhiêu quảng cáo
+        insertOne(doType1("dwh_falcon_2","api_ads_log_raw_data","account_id"));
+        //fail bao lần
+        insertOne(doType2("dwh_falcon_2","api_level_log_raw_data","account_id","status","fail"));
+        //lần đăng nhập cuối, lần đầu đăng nhập
+        insertMul(doType3("dwh_falcon_2","api_retention_raw_data","account_id",Arrays.asList("created_date","created_date"),
+                Arrays.asList("max","min"),Arrays.asList("long","long")));
+        //lần cuối chơi bao lâu
+        insertMul(doType4("dwh_falcon_2","api_session_raw_data","account_id",Arrays.asList("session_time"),
+                "created_date","max"));
+        //tổng thời gian đã chơi
+        insertMul(doType3("dwh_falcon_2","api_session_raw_data","account_id",Arrays.asList("session_time"),
+                Arrays.asList("sum"),Arrays.asList("long")));
+        for(String x:res.keySet()){
+            Document document = new Document();
+            document.append("account_id",x);
+            document.append("inapp_count",res.get(x).get(0));
+            document.append("inapp_max",res.get(x).get(1));
+            document.append("inapp_last",res.get(x).get(2));
+            document.append("inapp_min",res.get(x).get(3));
+            document.append("inapp_sum",res.get(x).get(4));
+            document.append("inapp_last_price",res.get(x).get(5));
+            document.append("ads_count",res.get(x).get(6));
+            document.append("level_count_fail",res.get(x).get(7));
+            document.append("retention_last_login",res.get(x).get(8));
+            document.append("retention_first_login",res.get(x).get(9));
+            document.append("session_last_play",res.get(x).get(10));
+            document.append("session_sum_play",res.get(x).get(11));
+            mongoRepository.saveDocument(document,"collectiontest");
+            //documents.add(document);
+        }
+        long endTime = System.currentTimeMillis();
+        long executeTime=endTime - currentTime;
+        System.out.println(executeTime);
+    }
 }
