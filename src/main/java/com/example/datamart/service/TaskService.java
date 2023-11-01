@@ -21,7 +21,7 @@ import java.util.*;
  */
 @Service
 public class TaskService implements InitializingBean {
-    private static final RedshiftService redshiftDC2Service = new RedshiftService("jdbc:redshift://new-dwh-cluster.cbyg0igfhhw3.us-east-1.redshift.amazonaws.com:5439/dwh_games", "quangnn", "Yvx83kfRmHt42b6kqgM5gzjG6");
+    private static final RedshiftService redshiftDC2Service = new RedshiftService("jdbc:redshift://new-dwh-cluster.cbyg0igfh***.us-east-1.redshift.amazonaws.com:5439/*********", "quangnn", "*************************");
     private static final Map<String, List<String>> tableList = new HashMap<>();
     private static final Logger logger = LoggerFactory.getLogger(TaskService.class);
     private static Set<String>accountId=new HashSet<>();
