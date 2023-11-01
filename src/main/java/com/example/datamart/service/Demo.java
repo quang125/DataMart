@@ -17,7 +17,6 @@ import java.util.*;
  */
 @Service
 public class Demo {
-    private static final RedshiftService redshiftDC2Service = new RedshiftService("jdbc:redshift://new-dwh-cluster.cbyg0igfhhw3.us-east-1.redshift.amazonaws.com:5439/dwh_games", "quangnn", "Yvx83kfRmHt42b6kqgM5gzjG6");
     private static Set<String> schemaList=new HashSet<>();
     private static Map<String, List<String>> tableList = new HashMap<>();
     public static void preRun() throws SQLException {
