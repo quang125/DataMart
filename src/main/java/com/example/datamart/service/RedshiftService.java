@@ -161,7 +161,8 @@ public class RedshiftService {
                 List<String>result=new ArrayList<>();
                 for (String field:fields) {
                     String value = resultSet.getString(field);
-                    result.add(value);
+                    if(value!=null) result.add(value);
+                    else result.add("0");
                 }
                 results.add(result);
             }

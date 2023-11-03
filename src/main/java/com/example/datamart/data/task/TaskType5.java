@@ -8,6 +8,7 @@ import lombok.Data;
  */
 @Data
 @AllArgsConstructor
-public class TaskType1 {
+public class TaskType5 {
     private String table;
+    private String inputField;
 }
