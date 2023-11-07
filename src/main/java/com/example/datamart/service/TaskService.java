@@ -39,10 +39,11 @@ public class TaskService implements InitializingBean {
     private MongoRepository mongoRepository;
     private static final String mainField="account_id";
     private static final String mainTable="api_inapp_log_raw_data";
-    private static String whereIn="select distinct "+mainField+" from (\n";
-
+    private static String whereIn=" not in (select distinct "+mainField+" from (\n";
+    List<String>resourceApi=new ArrayList<>();
+    List<String>mainFields=new ArrayList<>(Arrays.asList("country","created_date_str"));
     @PostConstruct
-    public static void preRun() throws SQLException {
+    public void preRun() throws SQLException {
         List<TableInfo> tableInfoList = redshiftDC2Service.executeSelectAllTable("select * from svv_tables");
         for (TableInfo tableInfo : tableInfoList) {
             if (tableInfo.getSchemaName().startsWith("dwh_")) {
@@ -55,17 +56,41 @@ public class TaskService implements InitializingBean {
                 if(tableInfo.getTableName().startsWith(mainTable)){
                     whereIn+=" select "+mainField+" from "+tableInfo.getSchemaName()+"."+tableInfo.getTableName()+"\nunion\n";
                 }
+                if(tableInfo.getTableName().startsWith("api_resource")) resourceApi.add(tableInfo.getTableName());
+
             }
         }
         whereIn=whereIn.substring(0,whereIn.length()-6);
         whereIn+=")";
     }
 
-    public static Map<String, String> doType1(String schema, String tableString, String mainField) {
+    public Map<String, String> doType1(String schema, String tableString, List<String> mainFields, String where) {
         Map<String, String> result = new HashMap<>();
         for (String table : tableList.get(schema)) {
             if (!table.startsWith(tableString)) continue;
-            List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType1(schema, table, mainField, whereIn),
+            List<String>list=new ArrayList<>(mainFields);
+            list.add("count");
+            System.out.println(QueryGenerateUtil.queryType1(schema, table, mainFields, where));
+            List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType1(schema, table, mainFields, where),
+                    list);
+            for (List<String> record : recordList) {
+                StringBuilder key= new StringBuilder();
+                for(int i=0;i<mainFields.size() ; i ++){
+                    key.append(record.get(i)).append(" ");
+                }
+                key = new StringBuilder(key.substring(0, key.length() - 1));
+                result.put(key.toString(), String.valueOf(Long.parseLong(result.getOrDefault(key.toString(), "0")) + Long.parseLong(record.get(record.size()-1))));
+            }
+        }
+        System.out.println(result);
+        return result;
+    }
+
+    public Map<String, String> doType2(String schema, String tableString, String mainField, String inputField, String inputFieldValue,String where ) {
+        Map<String, String> result = new HashMap<>();
+        for (String table : tableList.get(schema)) {
+            if (!table.startsWith(tableString)) continue;
+            List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType2(schema, table, mainField, inputField, inputFieldValue,where),
                     Arrays.asList(mainField, "count"));
             for (List<String> record : recordList) {
                 result.put(record.get(0), String.valueOf(Long.parseLong(result.getOrDefault(record.get(0), "0")) + Long.parseLong(record.get(1))));
@@ -74,20 +99,8 @@ public class TaskService implements InitializingBean {
         return result;
     }
 
-    public static Map<String, String> doType2(String schema, String tableString, String mainField, String inputField, String inputFieldValue) {
-        Map<String, String> result = new HashMap<>();
-        for (String table : tableList.get(schema)) {
-            if (!table.startsWith(tableString)) continue;
-            List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType2(schema, table, mainField, inputField, inputFieldValue,whereIn),
-                    Arrays.asList(mainField, "count"));
-            for (List<String> record : recordList) {
-                result.put(record.get(0), String.valueOf(Long.parseLong(result.getOrDefault(record.get(0), "0")) + Long.parseLong(record.get(1))));
-            }
-        }
-        return result;
-    }
-
-    public static Map<String, LinkedHashMap<String, String>> doType3(String schema, String tableString, String mainField, List<String> dataFields, List<String> types, List<String> dataTypes) {
+    public Map<String, LinkedHashMap<String, String>> doType3(String schema, String tableString, List<String> mainFields, List<String> dataFields, List<String> types,
+                                                              List<String> dataTypes, String where) {
         Map<String, LinkedHashMap<String, String>> result = new HashMap<>();
         for (String table : tableList.get(schema)) {
             if (!table.startsWith(tableString)) continue;
@@ -97,8 +110,9 @@ public class TaskService implements InitializingBean {
                 fields.add("a" + c);
                 c++;
             }
-            fields.add(mainField);
-            List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType3(schema, table, mainField, dataFields, types,whereIn), fields);
+            fields.addAll(mainFields);
+            System.out.println(QueryGenerateUtil.queryType3(schema, table, mainFields, dataFields, types,where));
+            List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType3(schema, table, mainFields, dataFields, types,where), fields);
             for (List<String> strings : recordList) {
                 if (!result.containsKey(strings.get(types.size())))
                     result.put(strings.get(types.size()), new LinkedHashMap<>());
@@ -135,13 +149,20 @@ public class TaskService implements InitializingBean {
                         }
                     }
                 }
-                result.put(strings.get(types.size()), fieldsResult);
+                StringBuilder key= new StringBuilder();
+                for(int i=0;i<mainFields.size();i++){
+                    key.append(strings.get(types.size()+i)).append(", ");
+                }
+                key=new StringBuilder(key.substring(0, key.length()-2));
+                result.put(key.toString(), fieldsResult);
             }
         }
+        //System.out.println(result);
         return result;
     }
 
-    public static Map<String, LinkedHashMap<String, String>> doType4(String schema, String tableString, String mainField, List<String> dataFields, String inputField, String type, int order) {
+    public Map<String, LinkedHashMap<String, String>> doType4(String schema, String tableString, String mainField, List<String> dataFields,
+                                                              String inputField, String type, int order, String where) {
         Map<String, LinkedHashMap<String, String>> result = new HashMap<>();
         List<String> sortedTable = new ArrayList<>();
         for (String table : tableList.get(schema)) {
@@ -152,7 +173,7 @@ public class TaskService implements InitializingBean {
         for (String table : sortedTable) {
             List<String> fields = new ArrayList<>(dataFields);
             fields.add(mainField);
-            List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType4(schema, table, mainField, dataFields, inputField, type,whereIn,order), fields);
+            List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType4(schema, table, mainField, dataFields, inputField, type,where,order), fields);
             for (List<String> strings : recordList) {
                 if (result.containsKey(strings.get(dataFields.size()))) continue;
                 LinkedHashMap<String, String> fieldsResult = new LinkedHashMap<>();
@@ -165,11 +186,11 @@ public class TaskService implements InitializingBean {
         return result;
     }
 
-    public static Map<String, LinkedHashMap<String, String>> doType5(String schema, String tableString, String mainField, String inputField, List<String> distinctValues) {
+    public Map<String, LinkedHashMap<String, String>> doType5(String schema, String tableString, String mainField, String inputField, List<String> distinctValues, String where) {
         Map<String, LinkedHashMap<String, String>> result = new HashMap<>();
         for (String table : tableList.get(schema)) {
             if (!table.startsWith(tableString)) continue;
-            List<List<String>>recordList=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType5(schema, table, mainField, inputField,whereIn),
+            List<List<String>>recordList=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType5(schema, table, mainField, inputField,where),
                     Arrays.asList(mainField, inputField, "count"));
             for(List<String>record:recordList){
                 if(!result.containsKey(record.get(0))){
@@ -184,11 +205,11 @@ public class TaskService implements InitializingBean {
         }
         return result;
     }
-    public static Map<String, String> doType6(String schema, String tableString, String mainField, String inputField) {
+    public Map<String, String> doType6(String schema, String tableString, String mainField, String inputField, String where) {
         Map<String, String> result = new HashMap<>();
         for (String table : tableList.get(schema)) {
             if (!table.startsWith(tableString)) continue;
-            List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType6(schema, table, mainField, inputField,whereIn),
+            List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType6(schema, table, mainField, inputField,where),
                     Arrays.asList(mainField, inputField));
             for (List<String> record : recordList) {
                 result.put(record.get(0), record.get(1));
@@ -197,10 +218,10 @@ public class TaskService implements InitializingBean {
         return result;
     }
 
-    public static void insertOne(Map<String, String> m) {
+    public void insertOne(Map<String, String> m) {
         for (Map.Entry<String, String> e : m.entrySet()) {
             if (!res.containsKey(e.getKey())) {
-                List<String> l = new ArrayList<>(Collections.nCopies(fieldNumber, "null"));
+                List<String> l = new ArrayList<>(Collections.nCopies(fieldNumber, "0"));
                 l.set(index, e.getValue());
                 res.put(e.getKey(), l);
             } else {
@@ -210,12 +231,12 @@ public class TaskService implements InitializingBean {
         index += 1;
     }
 
-    public static void insertMul(Map<String, LinkedHashMap<String, String>> m) {
+    public void insertMul(Map<String, LinkedHashMap<String, String>> m) {
         int newInd = index;
         for (Map.Entry<String, LinkedHashMap<String, String>> e : m.entrySet()) {
             int z = index;
             if (!res.containsKey(e.getKey())) {
-                List<String> l = new ArrayList<>(Collections.nCopies(fieldNumber, "null"));
+                List<String> l = new ArrayList<>(Collections.nCopies(fieldNumber, "0"));
                 for (Map.Entry<String, String> x : e.getValue().entrySet()) {
                     l.set(z, x.getValue());
                     z++;
@@ -231,12 +252,43 @@ public class TaskService implements InitializingBean {
         }
         index = newInd;
     }
+    List<String>fieldNames2=new ArrayList<>(Arrays.asList("account_id","country","ads_count","level_count_fail","level_count_pass","level_current","retention_last_login","retention_first_login",
+            "session_last_play","session_sum_play","platform"));
+    List<String>fieldNames3=new ArrayList<>(Arrays.asList("country","date","total_inapp","total_ads_watch","total_login"));
 
     @Override
     public void afterPropertiesSet() throws Exception {
+        redshiftDC2Service.executeUpdate(QueryGenerateUtil.createTempTable("dwh_falcon_2",resourceApi,whereIn,"account_id","country","1000"));
+        String where ="select account_id from abc";
+        fieldNumber = 3;
+        //tổng inapp theo quốc gia, date
+        insertMul(doType3("dwh_falcon_2","api_inapp",Arrays.asList("country","created_date_str"),Arrays.asList("price_usd"),Arrays.asList("sum"),Arrays.asList("double"),""));
+        //tổng xem quảng cáo
+        insertOne(doType1("dwh_falcon_2","api_ads",Arrays.asList("country","created_date_str")," where account_id in (select account_id from dwh_falcon_2.fact_inapp AS combined_results) "));
+        //tổng người đăng nhập
+        insertOne(doType1("dwh_falcon_2","api_retention",Arrays.asList("country","created_date_str")," where account_id in (select account_id from dwh_falcon_2.fact_inapp AS combined_results) "));
+        //quốc gia nào
+//        insertOne(doType6("dwh_falcon_2","api_resource_log","account_id","country",where));
+//        //xem bao nhiêu quảng cáo
+//        insertOne(doType1("dwh_falcon_2","api_ads","account_id",where));
+//        //số lần fail
+//        insertOne(doType2("dwh_falcon_2","api_level","account_id","status","fail",where));
+//        //số lần pass
+//        insertOne(doType2("dwh_falcon_2","api_level","account_id","status","pass",where));
+//        //level hiện tại (max level bên resource)
+//        insertMul(doType3("dwh_falcon_2","api_resource",Arrays.asList("account_id"), Arrays.asList("level"),Arrays.asList("max"),Arrays.asList("long"),where));
+//        //lần cuối đăng nhập
+//        insertMul(doType3("dwh_falcon_2","api_resource",Arrays.asList("account_id"),Arrays.asList("created_date_str"),Arrays.asList("max"),Arrays.asList("date"),where));
+//        //lần đầu đăng nhập
+//        insertMul(doType3("dwh_falcon_2","api_resource",Arrays.asList("account_id"),Arrays.asList("created_date_str"),Arrays.asList("min"),Arrays.asList("date"),where));
+//        //lần cuối chơi bao lâu
+//        insertMul(doType4("dwh_falcon_2","api_session","account_id",Arrays.asList("session_time"),"created_date_str","max",1,where));
+//        //tổng thời gian chơi bao lâu
+//        insertMul(doType3("dwh_falcon_2","api_session",Arrays.asList("account_id"),Arrays.asList("session_time"),Arrays.asList("sum"),Arrays.asList("long"),where));
+//        //platform
+//        insertOne(doType6("dwh_falcon_2","api_resource","account_id","platform",where));
 //        Long currentTime = System.currentTimeMillis();
 //        logger.info(String.valueOf(currentTime));
-//        fieldNumber = 25;
 //        //số lần đã nạp
 //        insertOne(doType1("dwh_falcon_2", "api_inapp", "account_id"));
 //        //lần nạp tối đa, lần nạp cuối, lần nạp tối thiểu, tổng nạp bao nhiêu tiền, lần nạp đầu
@@ -266,20 +318,20 @@ public class TaskService implements InitializingBean {
 //                List.of("sum"), List.of("long")));
 //        //thuộc platform nào
 //        insertOne(doType6("dwh_falcon_2","api_inapp_log_raw_data","account_id","platform"));
-//        writeCsv();
+        writeCsv();
 //        long endTime = System.currentTimeMillis();
 //        long executeTime = endTime - currentTime;
 //        logger.info(String.valueOf(executeTime));
     }
 
     public void writeCsv() {
-        try (CSVPrinter csvPrinter = new CSVPrinter(new FileWriter("C://csv//test8.csv"), CSVFormat.DEFAULT)) {
-            csvPrinter.printRecord(fieldNames);
+        System.out.println(res);
+        try (CSVPrinter csvPrinter = new CSVPrinter(new FileWriter("C://csv//impdau//non_api.csv"), CSVFormat.DEFAULT)) {
+            csvPrinter.printRecord(fieldNames3);
             for (Map.Entry<String, List<String>> e : res.entrySet()) {
-                List<String> record = new ArrayList<>();
-                record.add(e.getKey());
-                for (int i = 1; i < fieldNames.size(); i++) {
-                    record.add(e.getValue().get(i-1));
+                List<String> record = new ArrayList<>(Arrays.asList(e.getKey().split(" ")));
+                for (int i = 0; i < fieldNames3.size()-mainFields.size(); i++) {
+                    record.add(e.getValue().get(i));
                 }
                 csvPrinter.printRecord(record);
             }

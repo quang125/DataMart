@@ -40,9 +40,17 @@ public class QueryGenerateUtil {
      *  Query cho loại yêu cầu đếm, mà không cần biết đâu là trường đầu ra và cũng không có trường đầu vào
      *  Ví dụ: đã nạp bao nhiêu lần
      */
-    public static String queryType1(String schema, String table, String mainField, String whereIn){
-        return "select "+mainField+", count(*) from "+schema+"."+table+" where account_id in ("+whereIn+
-                " AS combined_results) group by "+mainField;
+    public static String queryType1(String schema, String table, List<String> mainFields, String whereIn){
+        StringBuilder query=new StringBuilder("select ");
+        for(String field:mainFields){
+            query.append(field).append(", ");
+        }
+        query.append(" count(*) from ").append(schema).append(".").append(table).append(whereIn).append(" group by ");
+        for(String field:mainFields){
+            query.append(field).append(", ");
+        }
+        query=new StringBuilder(query.substring(0, query.length()-2));
+        return query.toString();
     }
     /**
      *  Query cho loại yêu cầu đếm, mà không có điều kiện trường đầu vào, nhưng có đặt điều kiện trên trường đầu ra
@@ -57,15 +65,21 @@ public class QueryGenerateUtil {
      *  Ví dụ: lần nạp nhiều nhất là bao nhiêu tiền: max(price_usd), lần nạp cuối là bao giờ: max(created_date), tổng nạp bao nhiêu tiền: sum(price_usd),...
      *  Lưu ý: loại này có thể là int, long, double, date
      */
-    public static String queryType3(String schema, String table, String mainField, List<String> dataFields, List<String> types, String whereIn){
-        StringBuilder query=new StringBuilder("select "+mainField);
+    public static String queryType3(String schema, String table, List<String> mainFields, List<String> dataFields, List<String> types, String whereIn){
+        StringBuilder query=new StringBuilder("select ");
+        for(String field:mainFields)
+            query.append(field).append(", ");
+        query= new StringBuilder(query.substring(0, query.length() - 2));
         int c=0;
         for(int i=0;i<dataFields.size(); i ++){
             query.append(", ").append(types.get(i)).append("(").append(dataFields.get(i)).append(") as a").append(c);
             c++;
         }
-        return query.append(" from ").append(schema).append(".").append(table).append(" where account_id in ("+whereIn+
-                " AS combined_results)").append(" group by ").append(mainField).toString();
+        query.append(" from ").append(schema).append(".").append(table).append(whereIn).append(" group by ");
+        for(String field:mainFields)
+            query.append(field).append(", ");
+        query= new StringBuilder(query.substring(0, query.length() - 2));
+        return query.toString();
     }
     /**
      *  Query cho loại yêu cầu tìm giá trị xác định, có đặt giá trị trên trường đầu ra là giá trị max/min
@@ -178,4 +192,15 @@ public class QueryGenerateUtil {
         query+="\n)";
         return query;
     }
+    public static String createTempTable(String schema, List<String>mainTables,String whereIn, String mainFields, String limitedFiled, String limit){
+        String query="with cte as(";
+        for(String table:mainTables){
+            query+="select distinct "+mainFields+", "+limitedFiled+" from "+schema+"."+table+"\nunion\n";
+        }
+        query=query.substring(0,query.length()-6);
+        query+="), cte2 as (select "+mainFields + ","+limitedFiled+", dense_rank() over (partition by "+ limitedFiled +" order by "+ mainFields+") as rank from cte where "
+        +mainFields+whereIn+" \n)group by 1,2),\n cte3 as (select "+mainFields+" from cte2 where rank<="+limit+")";
+        query+="\nselect * into TEMPORARY TABLE abc FROM cte3";
+        return query;
+     }
 }
