@@ -6,7 +6,6 @@ import com.example.datamart.utils.QueryGenerateUtil;
 import jakarta.annotation.PostConstruct;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
-import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.InitializingBean;
@@ -39,7 +38,8 @@ public class TaskService implements InitializingBean {
     private MongoRepository mongoRepository;
     private static final String mainField="account_id";
     private static final String mainTable="api_inapp_log_raw_data";
-    private static String whereIn=" not in (select distinct "+mainField+" from (\n";
+    private static String whereIn=" where (account_id, created_date_str)  in (select  account_id, created_date_str from abc)";
+    private static String whereNotIn=" where (account_id, created_date_str)  not in (select  account_id, created_date_str from abc)";
     List<String>resourceApi=new ArrayList<>();
     List<String>mainFields=new ArrayList<>(Arrays.asList("country","created_date_str"));
     @PostConstruct
@@ -48,31 +48,25 @@ public class TaskService implements InitializingBean {
         for (TableInfo tableInfo : tableInfoList) {
             if (tableInfo.getSchemaName().startsWith("dwh_")) {
                 if (!tableInfo.getSchemaName().equals("dwh_falcon_2")) continue;
+                if(tableInfo.getTableName().contains("2023_09_11")||tableInfo.getTableName().contains("2023_09_18")||tableInfo.getTableName().contains("2023_09_25")) continue;
                 if (tableInfo.getTableName().startsWith("api_")) {
                     List<String> tables = tableList.getOrDefault(tableInfo.getSchemaName(), new ArrayList<>());
                     tables.add(tableInfo.getTableName());
                     tableList.put(tableInfo.getSchemaName(), tables);
                 }
-                if(tableInfo.getTableName().startsWith(mainTable)){
-                    whereIn+=" select "+mainField+" from "+tableInfo.getSchemaName()+"."+tableInfo.getTableName()+"\nunion\n";
-                }
-                if(tableInfo.getTableName().startsWith("api_resource")) resourceApi.add(tableInfo.getTableName());
+                if(tableInfo.getTableName().startsWith("api_inapp")) resourceApi.add(tableInfo.getTableName());
 
             }
         }
-        whereIn=whereIn.substring(0,whereIn.length()-6);
-        whereIn+=")";
     }
 
-    public Map<String, String> doType1(String schema, String tableString, List<String> mainFields, String where) {
+    public Map<String, String> doType1(String schema, String tableString, List<String> mainFields, List<String>needFields, String where) {
         Map<String, String> result = new HashMap<>();
         for (String table : tableList.get(schema)) {
             if (!table.startsWith(tableString)) continue;
-            List<String>list=new ArrayList<>(mainFields);
-            list.add("count");
             System.out.println(QueryGenerateUtil.queryType1(schema, table, mainFields, where));
             List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType1(schema, table, mainFields, where),
-                    list);
+                    needFields);
             for (List<String> record : recordList) {
                 StringBuilder key= new StringBuilder();
                 for(int i=0;i<mainFields.size() ; i ++){
@@ -82,7 +76,6 @@ public class TaskService implements InitializingBean {
                 result.put(key.toString(), String.valueOf(Long.parseLong(result.getOrDefault(key.toString(), "0")) + Long.parseLong(record.get(record.size()-1))));
             }
         }
-        System.out.println(result);
         return result;
     }
 
@@ -114,9 +107,16 @@ public class TaskService implements InitializingBean {
             System.out.println(QueryGenerateUtil.queryType3(schema, table, mainFields, dataFields, types,where));
             List<List<String>> recordList = redshiftDC2Service.executeSelect(QueryGenerateUtil.queryType3(schema, table, mainFields, dataFields, types,where), fields);
             for (List<String> strings : recordList) {
-                if (!result.containsKey(strings.get(types.size())))
-                    result.put(strings.get(types.size()), new LinkedHashMap<>());
-                LinkedHashMap<String, String> fieldsResult = new LinkedHashMap<>(result.get(strings.get(types.size())));
+                StringBuilder key= new StringBuilder();
+                for(int i=0;i<mainFields.size();i++){
+                    key.append(strings.get(types.size()+i)).append(" ");
+                }
+                String keyString=key.toString();
+                keyString=keyString.substring(0,keyString.length()-1);
+                if(keyString.contains("2023-09-24")) continue;
+                if (!result.containsKey(keyString))
+                    result.put(key.substring(0, key.length() - 1), new LinkedHashMap<>());
+                LinkedHashMap<String, String> fieldsResult = result.get(keyString);
                 for (int j = 0; j < types.size(); j++) {
                     if (types.get(j).equals("sum")) {
                         if (dataTypes.get(j).equals("double"))
@@ -124,7 +124,7 @@ public class TaskService implements InitializingBean {
                         if (dataTypes.get(j).equals("long"))
                             fieldsResult.put(dataFields.get(j) + "_sum", String.valueOf(Long.parseLong(fieldsResult.getOrDefault(dataFields.get(j) + "_sum", "0")) + Long.parseLong(strings.get(j))));
                     }
-                    if (types.get(j).equals("max")) {
+                    else if (types.get(j).equals("max")) {
                         if (dataTypes.get(j).equals("double"))
                             fieldsResult.put(dataFields.get(j) + "_max", String.valueOf(Math.max(Double.parseDouble(fieldsResult.getOrDefault(dataFields.get(j) + "_max", "0.0")), Double.parseDouble(strings.get(j)))));
                         else if (dataTypes.get(j).equals("long"))
@@ -136,7 +136,7 @@ public class TaskService implements InitializingBean {
                             }
                         }
                     }
-                    if (types.get(j).equals("min")) {
+                    else if (types.get(j).equals("min")) {
                         if (dataTypes.get(j).equals("double"))
                             fieldsResult.put(dataFields.get(j) + "_min", String.valueOf(Math.min(Double.parseDouble(fieldsResult.getOrDefault(dataFields.get(j) + "_min", "1000000000.0")), Double.parseDouble(strings.get(j)))));
                         else if (dataTypes.get(j).equals("long"))
@@ -148,16 +148,13 @@ public class TaskService implements InitializingBean {
                             }
                         }
                     }
+                    else{
+                        fieldsResult.put(dataFields.get(j) + "_count", String.valueOf(Long.parseLong(fieldsResult.getOrDefault(dataFields.get(j) + "_count", "0")) + Long.parseLong(strings.get(j))));
+                    }
                 }
-                StringBuilder key= new StringBuilder();
-                for(int i=0;i<mainFields.size();i++){
-                    key.append(strings.get(types.size()+i)).append(", ");
-                }
-                key=new StringBuilder(key.substring(0, key.length()-2));
-                result.put(key.toString(), fieldsResult);
+                result.put(keyString, fieldsResult);
             }
         }
-        //System.out.println(result);
         return result;
     }
 
@@ -254,19 +251,24 @@ public class TaskService implements InitializingBean {
     }
     List<String>fieldNames2=new ArrayList<>(Arrays.asList("account_id","country","ads_count","level_count_fail","level_count_pass","level_current","retention_last_login","retention_first_login",
             "session_last_play","session_sum_play","platform"));
-    List<String>fieldNames3=new ArrayList<>(Arrays.asList("country","date","total_inapp","total_ads_watch","total_login"));
+    List<String>fieldNames3=new ArrayList<>(Arrays.asList("country","date","total_inapp","imp_inapp","dau_inapp","imp/dau_inapp","imp_non_inapp","dau_non_inapp","imp/dau_non_inapp"));
 
     @Override
     public void afterPropertiesSet() throws Exception {
-        redshiftDC2Service.executeUpdate(QueryGenerateUtil.createTempTable("dwh_falcon_2",resourceApi,whereIn,"account_id","country","1000"));
-        String where ="select account_id from abc";
-        fieldNumber = 3;
-        //tổng inapp theo quốc gia, date
-        insertMul(doType3("dwh_falcon_2","api_inapp",Arrays.asList("country","created_date_str"),Arrays.asList("price_usd"),Arrays.asList("sum"),Arrays.asList("double"),""));
-        //tổng xem quảng cáo
-        insertOne(doType1("dwh_falcon_2","api_ads",Arrays.asList("country","created_date_str")," where account_id in (select account_id from dwh_falcon_2.fact_inapp AS combined_results) "));
-        //tổng người đăng nhập
-        insertOne(doType1("dwh_falcon_2","api_retention",Arrays.asList("country","created_date_str")," where account_id in (select account_id from dwh_falcon_2.fact_inapp AS combined_results) "));
+//        System.out.println(QueryGenerateUtil.createTempTableForNorMalReport("dwh_falcon_2",resourceApi,"account_id, created_date_str"));
+//        redshiftDC2Service.executeUpdate(QueryGenerateUtil.createTempTableForNorMalReport("dwh_falcon_2",resourceApi,"account_id, created_date_str"));
+//        fieldNumber = 5;
+//        //tổng inapp theo quốc gia, date
+//        insertMul(doType3("dwh_falcon_2","api_inapp",Arrays.asList("country","created_date_str"),Arrays.asList("price_usd"),Arrays.asList("sum"),Arrays.asList("double"),""));
+//        //IMP cho inapp
+//        insertMul(doType3("dwh_falcon_2","api_ads",Arrays.asList("country","created_date_str"),Arrays.asList("*"),Arrays.asList("count"),Arrays.asList("long"),whereIn));
+//        //DAU cho inapp
+//        insertMul(doType3("dwh_falcon_2","api_retention",Arrays.asList("country","created_date_str"),Arrays.asList("*"),Arrays.asList("count"),Arrays.asList("long"),whereIn));
+//        //IMP cho sum
+//        insertMul(doType3("dwh_falcon_2","api_ads",Arrays.asList("country","created_date_str"),Arrays.asList("*"),Arrays.asList("count"),Arrays.asList("long"),""));
+//        //DAU cho sum
+//        insertMul(doType3("dwh_falcon_2","api_retention",Arrays.asList("country","created_date_str"),Arrays.asList("*"),Arrays.asList("count"),Arrays.asList("long"),""));
+
         //quốc gia nào
 //        insertOne(doType6("dwh_falcon_2","api_resource_log","account_id","country",where));
 //        //xem bao nhiêu quảng cáo
@@ -318,21 +320,26 @@ public class TaskService implements InitializingBean {
 //                List.of("sum"), List.of("long")));
 //        //thuộc platform nào
 //        insertOne(doType6("dwh_falcon_2","api_inapp_log_raw_data","account_id","platform"));
-        writeCsv();
+       // writeCsv();
 //        long endTime = System.currentTimeMillis();
 //        long executeTime = endTime - currentTime;
 //        logger.info(String.valueOf(executeTime));
     }
 
     public void writeCsv() {
-        System.out.println(res);
-        try (CSVPrinter csvPrinter = new CSVPrinter(new FileWriter("C://csv//impdau//non_api.csv"), CSVFormat.DEFAULT)) {
+        try (CSVPrinter csvPrinter = new CSVPrinter(new FileWriter("C://csv/impdau_1.csv"), CSVFormat.DEFAULT)) {
             csvPrinter.printRecord(fieldNames3);
             for (Map.Entry<String, List<String>> e : res.entrySet()) {
                 List<String> record = new ArrayList<>(Arrays.asList(e.getKey().split(" ")));
-                for (int i = 0; i < fieldNames3.size()-mainFields.size(); i++) {
-                    record.add(e.getValue().get(i));
-                }
+                record.add(e.getValue().get(0));
+                record.add(e.getValue().get(1));
+                record.add(e.getValue().get(2));
+                record.add(String.valueOf(((double)Long.parseLong(e.getValue().get(1))/Long.parseLong(e.getValue().get(2)))));
+                Long x=Long.parseLong(e.getValue().get(3))-Long.parseLong(e.getValue().get(1));
+                Long y=Long.parseLong(e.getValue().get(4))-Long.parseLong(e.getValue().get(2));
+                record.add(String.valueOf(x));
+                record.add(String.valueOf(y));
+                record.add(String.valueOf(((double)x/y)));
                 csvPrinter.printRecord(record);
             }
         } catch (IOException e) {

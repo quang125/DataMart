@@ -38,6 +38,7 @@ public class NewBuyer implements InitializingBean {
     Map<String,List<String>>accountByMonth=new HashMap<>();
     List<String>distinctMonth;
     List<String> resourceApi=new ArrayList<>();
+    @PostConstruct
     public void preRun() throws SQLException {
         List<TableInfo> tableInfoList = redshiftDC2Service.executeSelectAllTable("select * from svv_tables");
         for (TableInfo tableInfo : tableInfoList) {
@@ -57,30 +58,30 @@ public class NewBuyer implements InitializingBean {
 
     @Override
     public void afterPropertiesSet() throws Exception {
-//        Set<String>difMonth=new HashSet<>(distinctMonth);
-//        for(String month:distinctMonth){
-//            difMonth.remove(month);
-//            List<List<String>>list1=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryMonthType1("dwh_falcon_2","fact_inapp",
-//                    Arrays.asList("account_id as a1", "count(*) as a2","sum(price_usd) as a3"),new ArrayList<>(difMonth)),Arrays.asList("b1","b2","b3"));
-//            List<List<String>>list2=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryMonthType2("dwh_falcon_2","fact_inapp",month,
-//            Arrays.asList("account_id as a1", "count(*) as a2","sum(price_usd) as a3"),new ArrayList<>(difMonth)),Arrays.asList("b1","b2","b3"));
-//            List<List<String>>list3=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryMonthType3("dwh_falcon_2","fact_inapp","account_id",
-//                    new ArrayList<>(difMonth)),Arrays.asList("count"));
-//            List<List<String>>list4=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryMonthType4("dwh_falcon_2","fact_inapp",month,"account_id",
-//                    new ArrayList<>(difMonth)),Arrays.asList("count"));
-//            difMonth.add(month);
-//            List<String>l=new ArrayList<>();
-//            l.addAll(list1.get(0));
-//            l.addAll(list3.get(0));
-//            l.add(String.valueOf(Long.parseLong(list1.get(0).get(0))-Long.parseLong(list3.get(0).get(0))));
-//            l.addAll(list2.get(0));
-//            l.addAll(list4.get(0));
-//            res.put(month,l);
-//        }
-//        writeCsv();
+        Set<String>difMonth=new HashSet<>(distinctMonth);
+        for(String month:distinctMonth){
+            difMonth.remove(month);
+            List<List<String>>list1=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryMonthType1("dwh_falcon_2","fact_inapp",
+                    Arrays.asList("account_id as a1", "count(*) as a2","sum(price_usd) as a3"),new ArrayList<>(difMonth)),Arrays.asList("b1","b2","b3"));
+            List<List<String>>list2=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryMonthType2("dwh_falcon_2","fact_inapp",month,
+            Arrays.asList("account_id as a1", "count(*) as a2","sum(price_usd) as a3"),new ArrayList<>(difMonth)),Arrays.asList("b1","b2","b3"));
+            List<List<String>>list3=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryMonthType3("dwh_falcon_2","fact_inapp","account_id",
+                    new ArrayList<>(difMonth)),Arrays.asList("count"));
+            List<List<String>>list4=redshiftDC2Service.executeSelect(QueryGenerateUtil.queryMonthType4("dwh_falcon_2","fact_inapp",month,"account_id",
+                    new ArrayList<>(difMonth)),Arrays.asList("count"));
+            difMonth.add(month);
+            List<String>l=new ArrayList<>();
+            l.addAll(list1.get(0));
+            l.addAll(list3.get(0));
+            l.add(String.valueOf(Long.parseLong(list1.get(0).get(0))-Long.parseLong(list3.get(0).get(0))));
+            l.addAll(list2.get(0));
+            l.addAll(list4.get(0));
+            res.put(month,l);
+        }
+        writeCsv();
     }
     public void writeCsv() {
-        try (CSVPrinter csvPrinter = new CSVPrinter(new FileWriter("C://csv//month/test.csv"), CSVFormat.DEFAULT)) {
+        try (CSVPrinter csvPrinter = new CSVPrinter(new FileWriter("C://csv//month/test1.csv"), CSVFormat.DEFAULT)) {
             csvPrinter.printRecord(fieldNames);
             for (Map.Entry<String, List<String>> e : res.entrySet()) {
                 List<String> record = new ArrayList<>();

@@ -12,7 +12,6 @@ import java.util.*;
 @AllArgsConstructor
 public class Task {
     private String schema;
-    private String mainField;//acount_id
     private List<TaskType1> taskType1s;
     private List<TaskType2> taskType2s;
     private List<TaskType3> taskType3s;

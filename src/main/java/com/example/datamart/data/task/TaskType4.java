@@ -12,7 +12,9 @@ import java.util.List;
 @AllArgsConstructor
 public class TaskType4 {
     private String table;
+    private List<String>groupFields;
     private List<String> dataFields;
     private String inputField;
     private String type;
+    
 }

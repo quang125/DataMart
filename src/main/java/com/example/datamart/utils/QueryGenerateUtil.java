@@ -1,6 +1,5 @@
 package com.example.datamart.utils;
 
-import com.example.datamart.data.FieldKind;
 import java.util.*;
 
 
@@ -157,6 +156,7 @@ public class QueryGenerateUtil {
             query+=")";
         }
         query+=") select count(*) as b1, sum(a2) as b2,  sum(a3) as b3 from cte";
+        System.out.println(query);
         return query;
     }
     public static String queryMonthType3(String schema, String table, String mainFields, List<String>difMonth){
@@ -192,7 +192,7 @@ public class QueryGenerateUtil {
         query+="\n)";
         return query;
     }
-    public static String createTempTable(String schema, List<String>mainTables,String whereIn, String mainFields, String limitedFiled, String limit){
+    public static String createTempTableForMonthlyReport(String schema, List<String>mainTables,String whereIn, String mainFields, String limitedFiled, String limit){
         String query="with cte as(";
         for(String table:mainTables){
             query+="select distinct "+mainFields+", "+limitedFiled+" from "+schema+"."+table+"\nunion\n";
@@ -202,5 +202,14 @@ public class QueryGenerateUtil {
         +mainFields+whereIn+" \n)group by 1,2),\n cte3 as (select "+mainFields+" from cte2 where rank<="+limit+")";
         query+="\nselect * into TEMPORARY TABLE abc FROM cte3";
         return query;
-     }
+    }
+    public static String createTempTableForNorMalReport(String schema, List<String>mainTables, String mainFields){
+        String query="with cte as(";
+        for(String table:mainTables){
+            query+="select distinct "+mainFields+" from "+schema+"."+table+"\nunion\n";
+        }
+        query=query.substring(0,query.length()-6);
+        query+=")\nselect * into TEMPORARY TABLE abc FROM cte";
+        return query;
+    }
 }

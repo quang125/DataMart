@@ -8,9 +8,8 @@ import java.util.*;
  */
 @AllArgsConstructor
 @Data
-public class TaskType6 {
+public class TaskType5 {
     private String table;
     private List<String>groupFields;
     private List<String>dataFields;
-
 }
