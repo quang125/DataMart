@@ -2,13 +2,15 @@ package com.example.datamart.data.task;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
-
+import java.util.*;
 /**
  * @author QuangNN
  */
-@Data
 @AllArgsConstructor
-public class TaskType5 {
+@Data
+public class TaskType6 {
     private String table;
-    private String inputField;
+    private List<String>groupFields;
+    private List<String>dataFields;
+
 }
